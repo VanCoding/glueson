@@ -1,0 +1,44 @@
+{
+  "a": 1,
+  "b": "2",
+  "c": [1, "2"],
+  "d": {
+    "a": 1,
+    "b": "2"
+  },
+  "e": {
+    "_glueson": "evaluate",
+    "code": "`content of file is: ${x}`",
+    "params": {
+      "x": {
+        "_glueson": "execute",
+        "command": "grep ${args}",
+        "params": {
+          "args": ["wor"]
+        },
+        "stdin": {
+          "_glueson": "execute",
+          "command": "cat ./file.txt"
+        }
+      }
+    }
+  },
+  "f": {
+    "_glueson": "get",
+    "path": "a.b",
+    "input": {
+      "a": {
+        "b": {
+          "c": {
+            "_glueson": "execute",
+            "command": "echo 'hello'"
+          },
+          "d": {
+            "_glueson": "execute",
+            "command": "echo 'hello'"
+          }
+        }
+      }
+    }
+  }
+}
