@@ -1,7 +1,7 @@
 import { runInNewContext } from "vm";
 import type { Readable } from "stream";
 import { createHash } from "crypto";
-import { $ } from "bun";
+import { $, type ShellError } from "bun";
 import { readFile } from "fs/promises";
 
 type GluesonBase = string | number | boolean;
@@ -160,7 +160,6 @@ const executeGluesonExpression = (expression: GluesonExpression) => {
 
 const executeEvaluateExpression = async (expression: EvaluateExpression) => {
   const { code, params = {} } = expression;
-  console.log("running code", code);
   const result = await runInNewContext("(async ()=>(" + code + "))()", params);
   return result;
 };
@@ -168,15 +167,35 @@ const executeEvaluateExpression = async (expression: EvaluateExpression) => {
 const executeExcecuteExpression = async (expression: ExecuteExpression) => {
   const { command, params = {}, stdin = "" } = expression;
 
-  const output = await executeEvaluateExpression({
-    _glueson: "evaluate",
-    code: "await $`" + command + (stdin ? " < ${stdin}" : "") + "`.text()",
-    params: {
-      $,
-      stdin: Buffer.from(stdin, "utf8"),
-      ...params,
-    },
-  });
+  let output: string;
+  const cmd = command + (stdin ? " < ${stdin}" : "");
+  try {
+    output = await executeEvaluateExpression({
+      _glueson: "evaluate",
+      code: "await $`" + cmd + "`.text()",
+      params: {
+        $,
+        stdin: Buffer.from(stdin, "utf8"),
+        ...params,
+      },
+    });
+  } catch (e: any) {
+    const err = e as ShellError;
+    console.error(`command "${cmd}" failed with exit code ${err.exitCode}\n`);
+    if (Object.keys(params).length > 0) {
+      console.error("params: ", JSON.stringify(params, null, 2), "\n");
+    }
+    if (stdin) {
+      console.error(`stdin:\n${stdin}\n`);
+    }
+    if (err.stdout.length > 0) {
+      console.error(`stdout:\n${err.stdout}\n`);
+    }
+    if (err.stderr.length > 0) {
+      console.error(`stderr:\n${err.stderr}\n`);
+    }
+    process.exit(1);
+  }
   if (expression.output === "string") {
     return output;
   }
