@@ -2,6 +2,7 @@ import { runInNewContext } from "vm";
 import type { Readable } from "stream";
 import { createHash } from "crypto";
 import { $ } from "bun";
+import { readFile } from "fs/promises";
 
 type GluesonBase = string | number | boolean;
 type Glueson = GluesonBase | Array<Glueson> | { [key: string]: Glueson };
@@ -212,5 +213,10 @@ const readStreamToEnd = async (stream: Readable) => {
   return output;
 };
 
-const input = await readStreamToEnd(process.stdin);
+const inputFile = process.argv[2];
+
+const input = !!inputFile
+  ? await readFile(inputFile, "utf8")
+  : await readStreamToEnd(process.stdin);
+
 console.log(await resolveGlueson(JSON.parse(input)));
