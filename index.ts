@@ -215,8 +215,17 @@ const readStreamToEnd = async (stream: Readable) => {
 
 const inputFile = process.argv[2];
 
+const removeShebang = (code: string) => {
+  if (code.startsWith("#!")) {
+    for (let i = 2; i < code.length; i++) {
+      if (code[i] === "\n" || code[i] === "\r") return code.slice(i + 1);
+    }
+  }
+  return code;
+};
+
 const input = !!inputFile
   ? await readFile(inputFile, "utf8")
   : await readStreamToEnd(process.stdin);
 
-console.log(await resolveGlueson(JSON.parse(input)));
+console.log(await resolveGlueson(JSON.parse(removeShebang(input))));
