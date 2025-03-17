@@ -1,6 +1,6 @@
 # glueson
 
-glueson is JSON-based programming language. Glueson is a superset of JSON. All valid JSON code is also valid glueson code. In addition to static JSON, glueson allows for some values to be dynamic. Example:
+glueson is a JSON-based programming language. Glueson is a superset of JSON. All valid JSON code is also valid glueson code. In addition to static JSON, glueson allows for some values to be dynamic. Example:
 
 ```json
 {
@@ -57,7 +57,7 @@ evaluates to `"Steve"`
 #### command
 
 The command to be executed. This used [Bun Shell](https://bun.sh/docs/runtime/shell) to execute. The syntax is very similar to bash.
-Piping with `|` and also chaining with `&` works as you would expect. You can allso reference environment variables with `$`.
+Piping with `|` and also chaining with `&` works as you would expect. You can also reference environment variables with `$`.
 
 #### params
 
@@ -65,7 +65,7 @@ In addition to passing arguments directly inside the `command`, you can also spe
 
 #### stdin
 
-This is a string than, if present, gets written to STDIN of the last command.
+A string that, if present, gets written to STDIN of the last command.
 
 #### output
 
