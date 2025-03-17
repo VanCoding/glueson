@@ -247,4 +247,10 @@ const input = !!inputFile
   ? await readFile(inputFile, "utf8")
   : await readStreamToEnd(process.stdin);
 
-console.log(await resolveGlueson(JSON.parse(removeShebang(input))));
+console.log(
+  JSON.stringify(
+    await resolveGlueson(JSON.parse(removeShebang(input))),
+    null,
+    2
+  )
+);
