@@ -17,7 +17,8 @@ type ExecuteExpression = {
   _glueson: "execute";
   command: string;
   params?: Record<string, any>;
-  stdin?: string;
+  stdin?: any;
+  stdinFormat?: "text" | "json";
   output?: Output;
 };
 type GetExpression = {
@@ -59,8 +60,6 @@ const parsers: Record<
       typeof expression.params !== "object"
     )
       throw new Error("params must be an object");
-    if (expression.stdin !== undefined && typeof expression.stdin !== "string")
-      throw new Error("stdin must be a string");
     if (
       expression.output !== undefined &&
       !Outputs.includes(expression.output)
@@ -165,7 +164,12 @@ const executeEvaluateExpression = async (expression: EvaluateExpression) => {
 };
 
 const executeExcecuteExpression = async (expression: ExecuteExpression) => {
-  const { command, params = {}, stdin = "" } = expression;
+  const {
+    command,
+    params = {},
+    stdin = "",
+    stdinFormat = typeof stdin === "string" ? "text" : "json",
+  } = expression;
 
   let output: string;
   const cmd = command + (stdin ? " < ${stdin}" : "");
@@ -175,7 +179,10 @@ const executeExcecuteExpression = async (expression: ExecuteExpression) => {
       code: "await $`" + cmd + "`.text()",
       params: {
         $,
-        stdin: Buffer.from(stdin, "utf8"),
+        stdin: Buffer.from(
+          stdinFormat === "text" ? stdin : JSON.stringify(stdin),
+          "utf8"
+        ),
         ...params,
       },
     });

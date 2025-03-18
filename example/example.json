@@ -40,5 +40,11 @@
         }
       }
     }
+  },
+  "roundtrip": {
+    "_glueson": "execute",
+    "command": "cat",
+    "stdin": { "hello": "world" },
+    "output": "json"
   }
 }
