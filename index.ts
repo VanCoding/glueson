@@ -3,6 +3,7 @@ import type { Readable } from "stream";
 import { createHash } from "crypto";
 import { $, type ShellError } from "bun";
 import { readFile } from "fs/promises";
+import { parseArgs } from "util";
 
 type GluesonBase = string | number | boolean;
 type Glueson = GluesonBase | Array<Glueson> | { [key: string]: Glueson };
@@ -27,7 +28,7 @@ type GetExpression = {
   input: any;
 };
 
-const Outputs = ["string", "json", "glueson"] as const;
+const Outputs = ["text", "json", "glueson"] as const;
 type Output = (typeof Outputs)[number];
 
 type GluesonExpression = EvaluateExpression | ExecuteExpression | GetExpression;
@@ -71,7 +72,7 @@ const parsers: Record<
       command: expression.command,
       params: expression.params,
       stdin: expression.stdin,
-      output: expression.output ?? "string",
+      output: expression.output ?? "text",
     };
   },
   get: (expression) => {
@@ -203,7 +204,7 @@ const executeExcecuteExpression = async (expression: ExecuteExpression) => {
     }
     process.exit(1);
   }
-  if (expression.output === "string") {
+  if (expression.output === "text") {
     return output;
   }
   const jsonOutput = JSON.parse(output);
@@ -239,8 +240,6 @@ const readStreamToEnd = async (stream: Readable) => {
   return output;
 };
 
-const inputFile = process.argv[2];
-
 const removeShebang = (code: string) => {
   if (code.startsWith("#!")) {
     for (let i = 2; i < code.length; i++) {
@@ -250,14 +249,24 @@ const removeShebang = (code: string) => {
   return code;
 };
 
+const args = parseArgs({
+  args: Bun.argv,
+  options: {
+    output: { type: "string", short: "o", default: "json" },
+  },
+  allowPositionals: true,
+});
+
+const inputFile = args.positionals[2];
+
 const input = !!inputFile
   ? await readFile(inputFile, "utf8")
   : await readStreamToEnd(process.stdin);
 
+const result = await resolveGlueson(JSON.parse(removeShebang(input)));
+
 console.log(
-  JSON.stringify(
-    await resolveGlueson(JSON.parse(removeShebang(input))),
-    null,
-    2
-  )
+  args.values.output === "text" && typeof result === "string"
+    ? result
+    : JSON.stringify(result, null, 2)
 );
