@@ -1,7 +1,7 @@
 import { runInNewContext } from "vm";
 import type { Readable } from "stream";
 import { createHash } from "crypto";
-import { $, type ShellError } from "bun";
+import { $, type ShellError, type ShellOutput } from "bun";
 import { readFile } from "fs/promises";
 import { parseArgs } from "util";
 
@@ -28,7 +28,7 @@ type GetExpression = {
   input: any;
 };
 
-const Outputs = ["text", "json", "glueson"] as const;
+const Outputs = ["text", "json", "glueson", "log"] as const;
 type Output = (typeof Outputs)[number];
 
 type GluesonExpression = EvaluateExpression | ExecuteExpression | GetExpression;
@@ -172,12 +172,13 @@ const executeExcecuteExpression = async (expression: ExecuteExpression) => {
     stdinFormat = typeof stdin === "string" ? "text" : "json",
   } = expression;
 
-  let output: string;
+  let output: string | ShellOutput;
   const cmd = command + (stdin ? " < ${stdin}" : "");
   try {
     output = await executeEvaluateExpression({
       _glueson: "evaluate",
-      code: "await $`" + cmd + "`.text()",
+      code:
+        "await $`" + cmd + "`" + (expression.output !== "log" ? ".text()" : ""),
       params: {
         $,
         stdin: Buffer.from(
@@ -203,6 +204,9 @@ const executeExcecuteExpression = async (expression: ExecuteExpression) => {
       console.error(`stderr:\n${err.stderr}\n`);
     }
     process.exit(1);
+  }
+  if (typeof output === "object") {
+    return output.exitCode;
   }
   if (expression.output === "text") {
     return output;

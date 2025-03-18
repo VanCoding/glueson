@@ -46,5 +46,10 @@
     "command": "cat",
     "stdin": { "hello": "world" },
     "output": "json"
+  },
+  "log": {
+    "_glueson": "execute",
+    "command": "echo 'hello'",
+    "output": "log"
   }
 }
