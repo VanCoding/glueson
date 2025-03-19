@@ -12,12 +12,12 @@
         "x86_64-darwin"
         "aarch64-darwin"
       ];
-      flake.overlays.default = prev: final: {
+      flake.overlays.default = prev: final: rec {
         glueson = prev.callPackage ./glueson.nix { };
         writeGluesonApplication =
           { name, value }:
           prev.writeScriptBin name ''
-            #!${final.glueson}/bin/glueson
+            #!${glueson}/bin/glueson
             ${builtins.toJSON value}
           '';
       };
