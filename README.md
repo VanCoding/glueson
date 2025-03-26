@@ -44,7 +44,7 @@ Execute a command and replace this expression with the command's output
 ```json
 {
   "_glueson": "execute",
-  "command": "grep ${searchTerm}",
+  "command": "grep $searchTerm",
   "params": {
     "searchTerm": "Steve"
   },
@@ -56,8 +56,8 @@ evaluates to `"Steve"`
 
 #### command
 
-The command to be executed. This used [Bun Shell](https://bun.sh/docs/runtime/shell) to execute. The syntax is very similar to bash.
-Piping with `|` and also chaining with `&` works as you would expect. You can also reference environment variables with `$`.
+The executable and arguments, separated by a space. If an argument starts with a $-sign, then the value is replaced with the value from the "params" object with the same name. Otherwise, the value is directly used.
+Arguments must not be wrapped in quotes and must not contain whitespace. Instead, if an argument contains whitespace, add it as a param instead and reference it with a $-sign.
 
 #### params
 
@@ -65,7 +65,14 @@ In addition to passing arguments directly inside the `command`, you can also spe
 
 #### stdin
 
-A string that, if present, gets written to STDIN of the last command.
+A string or JSON-value that, if present, gets written to STDIN of the last command. Can also be
+
+#### stdinFormat
+
+Can be `"text"` or `"json"`, defaults to `"string"` if the value is a string and otherwise to `"json"`
+
+- `"text"` writes the value as it is to STDIN
+- `"json"` converts the value to JSON (event strings) and then writes it to STDIN
 
 #### output
 

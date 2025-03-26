@@ -12,7 +12,7 @@
     "params": {
       "x": {
         "_glueson": "execute",
-        "command": "grep ${args}",
+        "command": "grep $args",
         "params": {
           "args": ["wor"]
         },
@@ -31,11 +31,11 @@
         "b": {
           "c": {
             "_glueson": "execute",
-            "command": "echo 'hello'"
+            "command": "echo hello"
           },
           "d": {
             "_glueson": "execute",
-            "command": "echo 'hello'"
+            "command": "echo hello"
           }
         }
       }
@@ -49,7 +49,7 @@
   },
   "log": {
     "_glueson": "execute",
-    "command": "echo 'hello'",
+    "command": "echo hello",
     "output": "log"
   }
 }

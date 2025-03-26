@@ -1,9 +1,9 @@
 import { runInNewContext } from "vm";
 import type { Readable } from "stream";
 import { createHash } from "crypto";
-import { $, type ShellError, type ShellOutput } from "bun";
 import { readFile } from "fs/promises";
 import { parseArgs } from "util";
+import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
 
 type GluesonBase = string | number | boolean;
 type Glueson = GluesonBase | Array<Glueson> | { [key: string]: Glueson };
@@ -172,51 +172,106 @@ const executeExcecuteExpression = async (expression: ExecuteExpression) => {
     stdinFormat = typeof stdin === "string" ? "text" : "json",
   } = expression;
 
-  let output: string | ShellOutput;
-  const cmd = command + (stdin ? " < ${stdin}" : "");
-  try {
-    output = await executeEvaluateExpression({
-      _glueson: "evaluate",
-      code:
-        "await $`" + cmd + "`" + (expression.output !== "log" ? ".text()" : ""),
-      params: {
-        $,
-        stdin: Buffer.from(
-          stdinFormat === "text" ? stdin : JSON.stringify(stdin),
-          "utf8"
-        ),
-        ...params,
-      },
-    });
-  } catch (e: any) {
-    const err = e as ShellError;
-    console.error(`command "${cmd}" failed with exit code ${err.exitCode}\n`);
+  const result = await runCommand(
+    command,
+    params,
+    stdinFormat === "text" ? stdin : JSON.stringify(stdin),
+    expression.output === "log"
+  );
+
+  if (typeof result === "string") {
+    console.error(result);
+    process.exit(1);
+  }
+  if (result.exitCode !== 0) {
+    console.error(
+      `command "${command}" failed with exit code ${result.exitCode}\n`
+    );
+
     if (Object.keys(params).length > 0) {
       console.error("params: ", JSON.stringify(params, null, 2), "\n");
     }
     if (stdin) {
       console.error(`stdin:\n${stdin}\n`);
     }
-    if (err.stdout.length > 0) {
-      console.error(`stdout:\n${err.stdout}\n`);
+    if (result.stdout.length > 0) {
+      console.error(`stdout:\n${result.stdout}\n`);
     }
-    if (err.stderr.length > 0) {
-      console.error(`stderr:\n${err.stderr}\n`);
+    if (result.stderr.length > 0) {
+      console.error(`stderr:\n${result.stderr}\n`);
     }
     process.exit(1);
   }
-  if (typeof output === "object") {
-    return output.exitCode;
+  if (expression.output === "log") {
+    return result.exitCode;
   }
+
   if (expression.output === "text") {
-    return output;
+    return result.stdout;
   }
-  const jsonOutput = JSON.parse(output);
+  const jsonOutput = JSON.parse(result.stdout);
   if (expression.output === "json") {
     return jsonOutput;
   }
   return await resolveGlueson(jsonOutput);
 };
+
+const runCommand = (
+  command: string,
+  inputs: Record<string, string | string[]>,
+  stdin: string,
+  log: boolean
+) => {
+  return new Promise<
+    | {
+        exitCode: Number;
+        stdout: string;
+        stderr: string;
+      }
+    | string
+  >((resolve) => {
+    const [executable, ...args] = prepareArgs(command, inputs);
+    if (!executable)
+      throw new Error("command must consist of at least one character");
+    let p: ChildProcessWithoutNullStreams;
+    try {
+      p = spawn(executable, args);
+    } catch {
+      resolve(`executable ${executable} not found`);
+      return;
+    }
+    p.stdin.end(stdin);
+    const stdout = readStreamToEnd(p.stdout);
+    const stderr = readStreamToEnd(p.stderr);
+    if (log) {
+      p.stdout.pipe(process.stdout);
+      p.stderr.pipe(process.stderr);
+    }
+    p.on("exit", async (exitCode) => {
+      resolve({
+        exitCode: exitCode!,
+        stdout: await stdout,
+        stderr: await stderr,
+      });
+    });
+  });
+};
+
+const prepareArgs = (
+  command: string,
+  inputs: Record<string, string | string[]>
+) =>
+  command
+    .split(" ")
+    .filter((arg) => arg.length > 0)
+    .flatMap((arg) => {
+      if (arg.startsWith("$")) {
+        const input = inputs[arg.slice(1)];
+        if (input === undefined) throw new Error(`missing input ${arg}`);
+        return typeof input === "object" ? input : [input];
+      }
+      return [arg];
+    });
 
 const executeGetExpression = async (expression: GetExpression) => {
   const { input, path } = expression;
