@@ -42,14 +42,24 @@
     }
   },
   "roundtrip": {
-    "_glueson": "execute",
-    "command": "cat",
-    "stdin": { "hello": "world" },
-    "output": "json"
+    "_glueson": "parse",
+    "input": {
+      "_glueson": "execute",
+      "command": "cat",
+      "stdin": { "hello": "world" }
+    }
   },
   "log": {
     "_glueson": "execute",
     "command": "echo hello",
-    "output": "log"
+    "log": true
+  },
+  "parsed": {
+    "_glueson": "parse",
+    "input": "{\"a\":1}"
+  },
+  "serialized": {
+    "_glueson": "serialize",
+    "input": { "a": 1 }
   }
 }

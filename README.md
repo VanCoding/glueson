@@ -65,23 +65,48 @@ In addition to passing arguments directly inside the `command`, you can also spe
 
 #### stdin
 
-A string or JSON-value that, if present, gets written to STDIN of the last command. Can also be
+If present, gets written to STDIN of the last command. If it's not a string, it gets serialized to JSON automatically.
 
-#### stdinFormat
+#### log
 
-Can be `"text"` or `"json"`, defaults to `"string"` if the value is a string and otherwise to `"json"`
+A boolean, that if set to true, logs the STDOUT & STDERR instead of returning it. Instead, it returns the exitCode. Defaults to false.
 
-- `"text"` writes the value as it is to STDIN
-- `"json"` converts the value to JSON (event strings) and then writes it to STDIN
+### parse
 
-#### output
+Replace this expresion with the parsed value of a given `input`.
 
-Defines how the output of the command should be treated,
-Can be either `"string"`, `"json"` or `"glueson"`, defaults to `"string"`
+```json
+{
+  "_glueson": "parse",
+  "input": "{\"a\":1}"
+}
+```
 
-- `"string"` takes the output as a string
-- `"json"` parses the output as JSON
-- `"glueson"` parses & evaluates the output as glueson
+#### input
+
+The value to parse. Must be a string.
+
+#### format
+
+- `"json"` parse the input as json (default)
+- `"glueson"` parse & execute the input as glueson
+
+### serialize
+
+Replace this expresion with the JSON-serialized value of a given `input`.
+
+```json
+{
+  "_glueson": "serialize",
+  "input": {
+    "a": 1
+  }
+}
+```
+
+#### input
+
+The value to serialize.
 
 ### get
 

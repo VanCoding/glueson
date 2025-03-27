@@ -14,13 +14,23 @@ type EvaluateExpression = {
   params?: Record<string, any>;
 };
 
+type SerializeExpression = {
+  _glueson: "serialize";
+  input: any;
+};
+
+type ParseExpression = {
+  _glueson: "parse";
+  format: "json" | "glueson";
+  input: string;
+};
+
 type ExecuteExpression = {
   _glueson: "execute";
   command: string;
-  params?: Record<string, any>;
-  stdin?: any;
-  stdinFormat?: "text" | "json";
-  output?: Output;
+  params: Record<string, any>;
+  stdin: any;
+  log: boolean;
 };
 type GetExpression = {
   _glueson: "get";
@@ -28,10 +38,12 @@ type GetExpression = {
   input: any;
 };
 
-const Outputs = ["text", "json", "glueson", "log"] as const;
-type Output = (typeof Outputs)[number];
-
-type GluesonExpression = EvaluateExpression | ExecuteExpression | GetExpression;
+type GluesonExpression =
+  | EvaluateExpression
+  | ExecuteExpression
+  | GetExpression
+  | ParseExpression
+  | SerializeExpression;
 
 type Operation = GluesonExpression["_glueson"];
 
@@ -61,18 +73,16 @@ const parsers: Record<
       typeof expression.params !== "object"
     )
       throw new Error("params must be an object");
-    if (
-      expression.output !== undefined &&
-      !Outputs.includes(expression.output)
-    ) {
-      throw new Error(`invalid output type ${expression.output}`);
+    if (expression.log !== undefined && typeof expression.log !== "boolean") {
+      throw new Error(`log must be a boolean`);
     }
+
     return {
       _glueson: "execute",
       command: expression.command,
       params: expression.params,
-      stdin: expression.stdin,
-      output: expression.output ?? "text",
+      stdin: expression.stdin ?? "",
+      log: expression.log ?? false,
     };
   },
   get: (expression) => {
@@ -84,6 +94,31 @@ const parsers: Record<
       _glueson: "get",
       input: expression.input,
       path: expression.path,
+    };
+  },
+  parse: (expression) => {
+    if (
+      expression.format !== undefined &&
+      !["test", "json", "glueson"].includes(expression.format)
+    ) {
+      throw new Error(`parse format must be one of "text", "json", "glueson"`);
+    }
+    if (typeof expression.input !== "string") {
+      throw new Error("parse input must be a string");
+    }
+    return {
+      _glueson: "parse",
+      format: expression.format ?? "json",
+      input: expression.input,
+    };
+  },
+  serialize: (expression) => {
+    if (expression.input === undefined) {
+      throw new Error("serialize input must be defined");
+    }
+    return {
+      _glueson: "serialize",
+      input: expression.input,
     };
   },
 };
@@ -153,9 +188,14 @@ const executeGluesonExpression = (expression: GluesonExpression) => {
     return executeEvaluateExpression(expression);
   } else if (expression._glueson === "execute") {
     return executeExcecuteExpression(expression);
-  } else {
+  } else if (expression._glueson === "get") {
     return executeGetExpression(expression);
+  } else if (expression._glueson === "parse") {
+    return executeParseExpression(expression);
+  } else if (expression._glueson === "serialize") {
+    return executeSerializeExpression(expression);
   }
+  throw new Error(`unknown expression type`);
 };
 
 const executeEvaluateExpression = async (expression: EvaluateExpression) => {
@@ -164,20 +204,22 @@ const executeEvaluateExpression = async (expression: EvaluateExpression) => {
   return result;
 };
 
-const executeExcecuteExpression = async (expression: ExecuteExpression) => {
-  const {
-    command,
-    params = {},
-    stdin = "",
-    stdinFormat = typeof stdin === "string" ? "text" : "json",
-  } = expression;
+const executeParseExpression = async (expression: ParseExpression) => {
+  const result = JSON.parse(expression.input);
+  if (expression.format === "glueson") {
+    return await resolveGlueson(result);
+  }
+  return result;
+};
 
-  const result = await runCommand(
-    command,
-    params,
-    stdinFormat === "text" ? stdin : JSON.stringify(stdin),
-    expression.output === "log"
-  );
+const executeSerializeExpression = async (expression: SerializeExpression) => {
+  return JSON.stringify(expression.input);
+};
+
+const executeExcecuteExpression = async (expression: ExecuteExpression) => {
+  const { command, params, stdin } = expression;
+
+  const result = await runCommand(command, params, stdin, expression.log);
 
   if (typeof result === "string") {
     console.error(result);
@@ -202,24 +244,20 @@ const executeExcecuteExpression = async (expression: ExecuteExpression) => {
     }
     process.exit(1);
   }
-  if (expression.output === "log") {
+  if (expression.log) {
     return result.exitCode;
   }
+  return result.stdout;
+};
 
-  if (expression.output === "text") {
-    return result.stdout;
-  }
-  const jsonOutput = JSON.parse(result.stdout);
-  if (expression.output === "json") {
-    return jsonOutput;
-  }
-  return await resolveGlueson(jsonOutput);
+const toJsonIfNotString = (value: any) => {
+  return typeof value === "string" ? value : JSON.stringify(value);
 };
 
 const runCommand = (
   command: string,
   inputs: Record<string, string | string[]>,
-  stdin: string,
+  stdin: any,
   log: boolean
 ) => {
   return new Promise<
@@ -240,7 +278,7 @@ const runCommand = (
       resolve(`executable ${executable} not found`);
       return;
     }
-    p.stdin.end(stdin);
+    p.stdin.end(toJsonIfNotString(stdin));
     const stdout = readStreamToEnd(p.stdout);
     const stderr = readStreamToEnd(p.stderr);
     if (log) {
