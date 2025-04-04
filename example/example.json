@@ -61,5 +61,12 @@
   "serialized": {
     "_glueson": "serialize",
     "input": { "a": 1 }
+  },
+  "streams": {
+    "_glueson": "execute",
+    "command": "cat $stream",
+    "streams": {
+      "stream": "hello world"
+    }
   }
 }

@@ -27,9 +27,9 @@
           devShells.default = pkgs.mkShell {
             packages = [
               pkgs.nixfmt-rfc-style
-              pkgs.bun
-              pkgs.nodejs_20
+              pkgs.nodejs
               config.packages.glueson
+              pkgs.esbuild
             ];
           };
           packages.glueson = pkgs.callPackage ./glueson.nix { };

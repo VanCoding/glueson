@@ -1,9 +1,9 @@
 {
   "name": "glueson",
   "module": "index.ts",
-  "devDependencies": {
-    "@types/bun": "^1.2.5"
-  },
   "private": true,
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "@types/node": "^22.13.14"
+  }
 }

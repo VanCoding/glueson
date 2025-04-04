@@ -1,9 +1,16 @@
 import { runInNewContext } from "vm";
 import type { Readable } from "stream";
-import { createHash } from "crypto";
-import { readFile } from "fs/promises";
+import { createHash, randomBytes } from "crypto";
+import { readFile, unlink } from "fs/promises";
 import { parseArgs } from "util";
-import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
+import {
+  spawn,
+  type ChildProcessWithoutNullStreams,
+  exec,
+} from "child_process";
+import { tmpdir } from "os";
+import { join } from "path";
+import { createReadStream, createWriteStream, ReadStream } from "fs";
 
 type GluesonBase = string | number | boolean;
 type Glueson = GluesonBase | Array<Glueson> | { [key: string]: Glueson };
@@ -30,6 +37,7 @@ type ExecuteExpression = {
   command: string;
   params: Record<string, any>;
   stdin: any;
+  streams: Record<string, any>;
   log: boolean;
 };
 type GetExpression = {
@@ -76,12 +84,18 @@ const parsers: Record<
     if (expression.log !== undefined && typeof expression.log !== "boolean") {
       throw new Error(`log must be a boolean`);
     }
+    if (
+      expression.streams !== undefined &&
+      typeof expression.streams !== "object"
+    )
+      throw new Error("streams must be an object");
 
     return {
       _glueson: "execute",
       command: expression.command,
-      params: expression.params,
+      params: expression.params ?? {},
       stdin: expression.stdin ?? "",
+      streams: expression.streams ?? {},
       log: expression.log ?? false,
     };
   },
@@ -217,9 +231,16 @@ const executeSerializeExpression = async (expression: SerializeExpression) => {
 };
 
 const executeExcecuteExpression = async (expression: ExecuteExpression) => {
-  const { command, params, stdin } = expression;
+  const { command, params, stdin, streams } = expression;
 
-  const result = await runCommand(command, params, stdin, expression.log);
+  const { streams: pipes, params: pipeParams } = await makePipes(streams);
+  const result = await runCommand(
+    command,
+    { ...params, ...pipeParams },
+    stdin,
+    pipes,
+    expression.log
+  );
 
   if (typeof result === "string") {
     console.error(result);
@@ -258,6 +279,7 @@ const runCommand = (
   command: string,
   inputs: Record<string, string | string[]>,
   stdin: any,
+  streams: ReadStream[],
   log: boolean
 ) => {
   return new Promise<
@@ -273,12 +295,18 @@ const runCommand = (
       throw new Error("command must consist of at least one character");
     let p: ChildProcessWithoutNullStreams;
     try {
-      p = spawn(executable, args);
-    } catch {
+      p = spawn(executable, args, {
+        stdio: ["pipe", "pipe", "pipe", ...streams],
+        env: process.env,
+      }) as ChildProcessWithoutNullStreams;
+    } catch (e) {
+      console.error(e);
       resolve(`executable ${executable} not found`);
       return;
     }
-    p.stdin.end(toJsonIfNotString(stdin));
+    if (stdin) {
+      p.stdin.end(toJsonIfNotString(stdin));
+    }
     const stdout = readStreamToEnd(p.stdout);
     const stderr = readStreamToEnd(p.stderr);
     if (log) {
@@ -346,8 +374,62 @@ const removeShebang = (code: string) => {
   return code;
 };
 
+const makePipes = async (
+  streams: Record<string, any>
+): Promise<{ streams: ReadStream[]; params: Record<string, string> }> => {
+  const pipes = await Promise.all(
+    Object.entries(streams).map(async ([key, value], index) => {
+      return {
+        key,
+        path: `/dev/fd/${index + 3}`,
+        stream: await makePipe(value),
+      };
+    })
+  );
+  return {
+    params: Object.fromEntries(pipes.map(({ key, path }) => [key, path])),
+    streams: pipes.map(({ stream }) => stream),
+  };
+};
+
+const makePipe = async (value: string) => {
+  const path = makeTempPath();
+  await execAsync(`mkfifo ${path}`);
+  const writeStream = createWriteStream(path).once("open", async () => {
+    writeStream.end(value);
+    await unlink(path);
+  });
+
+  return await new Promise<ReadStream>((resolve) => {
+    const readStream = createReadStream(path);
+    readStream.on("open", () => {
+      resolve(readStream);
+    });
+  });
+};
+
+const execAsync = (command: string) => {
+  return new Promise<number>((resolve, reject) => {
+    const p = exec(command);
+    p.on("exit", async (code) => {
+      if (code !== 0) {
+        reject(new Error(`command "${command}" failed with exit code ${code}`));
+      } else {
+        resolve(code);
+      }
+    });
+  });
+};
+
+const makeTempPath = () => {
+  return join(
+    tmpdir(),
+    `archive.${randomBytes(6).readUIntLE(0, 6).toString(36)}`
+  );
+};
+
 const args = parseArgs({
-  args: Bun.argv,
+  args: process.argv,
   options: {
     output: { type: "string", short: "o", default: "json" },
   },
