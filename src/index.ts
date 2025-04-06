@@ -34,6 +34,7 @@ type ExecuteExpression = {
   params: Record<string, any>;
   stdin: any;
   log: boolean;
+  env: Record<string, string>;
 };
 type GetExpression = {
   _glueson: "get";
@@ -89,6 +90,17 @@ const parsers: Record<
     if (log !== undefined && typeof log !== "boolean") {
       throw new Error(`log must be a boolean`);
     }
+    const env = await resolveGlueson(expression.env);
+    if (env !== undefined) {
+      if (typeof env !== "object") {
+        throw new Error(`env must be an object`);
+      }
+      for (const [key, value] of Object.entries(env)) {
+        if (typeof value !== "string") {
+          throw new Error(`env values must be strings (${key})`);
+        }
+      }
+    }
 
     return {
       _glueson: "execute",
@@ -96,6 +108,7 @@ const parsers: Record<
       params: params ?? {},
       stdin: stdin ?? "",
       log: log ?? false,
+      env: (env as Record<string, string> | undefined) ?? {},
     };
   },
   get: async (expression) => {
@@ -284,7 +297,13 @@ const executeExcecuteExpression = cached(
   async (expression: ExecuteExpression) => {
     const { command, params, stdin } = expression;
 
-    const result = await runCommand(command, params, stdin, expression.log);
+    const result = await runCommand(
+      command,
+      params,
+      stdin,
+      expression.log,
+      expression.env
+    );
 
     if (typeof result === "string") {
       console.error(result);
@@ -324,7 +343,8 @@ const runCommand = (
   command: string,
   inputs: Record<string, string | string[]>,
   stdin: any,
-  log: boolean
+  log: boolean,
+  env: Record<string, string>
 ) => {
   return new Promise<
     | {
@@ -340,7 +360,10 @@ const runCommand = (
     let p: ChildProcessWithoutNullStreams;
     try {
       p = spawn(executable, args, {
-        env: process.env,
+        env: {
+          ...process.env,
+          ...env,
+        },
       }) as ChildProcessWithoutNullStreams;
     } catch (e) {
       console.error(e);
