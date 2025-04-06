@@ -280,6 +280,7 @@ const executeEvaluateExpression = async (expression: EvaluateExpression) => {
     ...(lazy
       ? params
       : ((await resolveGlueson(params)) as Record<string, any>)),
+    env: process.env,
     get: getValue,
   });
   return result;

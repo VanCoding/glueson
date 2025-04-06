@@ -116,5 +116,9 @@
         "TEST_ENV_VAR": "hello world"
       }
     }
+  },
+  "access-env-in-evaluate": {
+    "_glueson": "evaluate",
+    "code": "env.USER"
   }
 }
