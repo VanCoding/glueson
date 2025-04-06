@@ -1,9 +1,12 @@
 import { runInNewContext } from "vm";
 import type { Readable } from "stream";
-import { readFile } from "fs/promises";
+import { readFile, writeFile } from "fs/promises";
+import { rmSync } from "fs";
 import { parseArgs } from "util";
 import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
 import { createHash } from "crypto";
+import { tmpdir } from "os";
+import { resolve } from "path";
 
 type GluesonBase = string | number | boolean;
 type Glueson = GluesonBase | Array<Glueson> | { [key: string]: Glueson };
@@ -38,12 +41,18 @@ type GetExpression = {
   input: any;
 };
 
+type TemporaryFileExpression = {
+  _glueson: "temporary-file";
+  input: string;
+};
+
 type GluesonExpression =
   | EvaluateExpression
   | ExecuteExpression
   | GetExpression
   | ParseExpression
-  | SerializeExpression;
+  | SerializeExpression
+  | TemporaryFileExpression;
 
 type Operation = GluesonExpression["_glueson"];
 
@@ -116,6 +125,15 @@ const parsers: Record<
     return {
       _glueson: "serialize",
       input,
+    };
+  },
+  "temporary-file": async (expression) => {
+    const input = await resolveGlueson(expression.input);
+    if (typeof input === "undefined")
+      throw new Error("temp-file input must be defined");
+    return {
+      _glueson: "temporary-file",
+      input: typeof input === "string" ? input : JSON.stringify(input),
     };
   },
 };
@@ -193,6 +211,18 @@ const cached =
     return result;
   };
 
+const tempFiles = new Set<string>();
+
+const executeTemporaryFileExpression = async (
+  expression: TemporaryFileExpression
+): Promise<string> => {
+  const hash = hashExpression(expression);
+  const path = resolve(tmpdir(), `glueson-${new Date().getTime()}-${hash}`);
+  await writeFile(path, expression.input);
+  tempFiles.add(path);
+  return path;
+};
+
 export const resolveValue = async (
   glueson: Glueson
 ): Promise<ResolvedGlueson> => {
@@ -225,6 +255,8 @@ const executeGluesonExpression = (expression: GluesonExpression) => {
     return executeParseExpression(expression);
   } else if (expression._glueson === "serialize") {
     return executeSerializeExpression(expression);
+  } else if (expression._glueson === "temporary-file") {
+    return executeTemporaryFileExpression(expression);
   }
   throw new Error(`unknown expression type`);
 };
@@ -406,3 +438,9 @@ console.log(
     ? result
     : JSON.stringify(result, null, 2)
 );
+
+process.on("exit", () => {
+  for (const tempFile of tempFiles) {
+    rmSync(tempFile, { force: true });
+  }
+});

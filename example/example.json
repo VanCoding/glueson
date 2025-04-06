@@ -95,5 +95,15 @@
         "log": true
       }
     }
+  },
+  "tempFile": {
+    "_glueson": "execute",
+    "command": "cat $file",
+    "params": {
+      "file": {
+        "_glueson": "temporary-file",
+        "input": "hello world"
+      }
+    }
   }
 }
