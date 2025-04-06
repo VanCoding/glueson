@@ -102,7 +102,7 @@
     "params": {
       "file": {
         "_glueson": "temporary-file",
-        "input": "hello world"
+        "content": "hello world"
       }
     }
   },

@@ -44,7 +44,7 @@ type GetExpression = {
 
 type TemporaryFileExpression = {
   _glueson: "temporary-file";
-  input: string;
+  content: string;
 };
 
 type GluesonExpression =
@@ -141,12 +141,12 @@ const parsers: Record<
     };
   },
   "temporary-file": async (expression) => {
-    const input = await resolveGlueson(expression.input);
-    if (typeof input === "undefined")
-      throw new Error("temp-file input must be defined");
+    const content = await resolveGlueson(expression.content);
+    if (typeof content === "undefined")
+      throw new Error("temp-file content must be defined");
     return {
       _glueson: "temporary-file",
-      input: typeof input === "string" ? input : JSON.stringify(input),
+      content: typeof content === "string" ? content : JSON.stringify(content),
     };
   },
 };
@@ -231,7 +231,7 @@ const executeTemporaryFileExpression = async (
 ): Promise<string> => {
   const hash = hashExpression(expression);
   const path = resolve(tmpdir(), `glueson-${new Date().getTime()}-${hash}`);
-  await writeFile(path, expression.input);
+  await writeFile(path, expression.content);
   tempFiles.add(path);
   return path;
 };
