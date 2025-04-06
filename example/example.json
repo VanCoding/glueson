@@ -23,6 +23,24 @@
       }
     }
   },
+  "caching": {
+    "one": {
+      "_glueson": "execute",
+      "command": "echo $message",
+      "params": {
+        "message": "this should only run once"
+      },
+      "log": true
+    },
+    "two": {
+      "_glueson": "execute",
+      "command": "echo $message",
+      "params": {
+        "message": "this should only run once"
+      },
+      "log": true
+    }
+  },
   "f": {
     "_glueson": "get",
     "path": "a.b",
@@ -61,5 +79,21 @@
   "serialized": {
     "_glueson": "serialize",
     "input": { "a": 1 }
+  },
+  "lazyEvaluation": {
+    "_glueson": "evaluate",
+    "lazy": true,
+    "code": "await get(condition)?await get(whenTrue):false",
+    "params": {
+      "condition": false,
+      "whenTrue": {
+        "_glueson": "execute",
+        "command": "echo $message",
+        "params": {
+          "message": "this should not have run!"
+        },
+        "log": true
+      }
+    }
   }
 }

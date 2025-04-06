@@ -1,9 +1,9 @@
 import { runInNewContext } from "vm";
 import type { Readable } from "stream";
-import { createHash, randomBytes } from "crypto";
 import { readFile } from "fs/promises";
 import { parseArgs } from "util";
 import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
+import { createHash } from "crypto";
 
 type GluesonBase = string | number | boolean;
 type Glueson = GluesonBase | Array<Glueson> | { [key: string]: Glueson };
@@ -11,7 +11,8 @@ type Glueson = GluesonBase | Array<Glueson> | { [key: string]: Glueson };
 type EvaluateExpression = {
   _glueson: "evaluate";
   code: string;
-  params?: Record<string, any>;
+  params: Record<string, any>;
+  lazy: boolean;
 };
 
 type SerializeExpression = {
@@ -21,7 +22,6 @@ type SerializeExpression = {
 
 type ParseExpression = {
   _glueson: "parse";
-  format: "json" | "glueson";
   input: string;
 };
 
@@ -49,76 +49,73 @@ type Operation = GluesonExpression["_glueson"];
 
 const parsers: Record<
   Operation,
-  (expression: Record<string, any>) => GluesonExpression
+  (expression: Record<string, any>) => Promise<GluesonExpression>
 > = {
-  evaluate: (expression) => {
-    if (typeof expression.code !== "string")
-      throw new Error("code is required");
-    if (
-      expression.params !== undefined &&
-      typeof expression.params !== "object"
-    )
+  evaluate: async (expression) => {
+    const code = await resolveGlueson(expression.code);
+    if (typeof code !== "string") throw new Error("code must be a string");
+    const lazy = await resolveGlueson(expression.lazy);
+    if (lazy !== undefined && typeof lazy !== "boolean") {
+      throw new Error("lazy must be a boolean");
+    }
+    const params = await resolveValue(expression.params);
+    if (params !== undefined && typeof params !== "object")
       throw new Error("params must be an object");
     return {
       _glueson: "evaluate",
-      code: expression.code,
-      params: expression.params as Record<string, any>,
+      code,
+      params: params as Record<string, any>,
+      lazy: lazy ?? false,
     };
   },
-  execute: (expression) => {
-    if (typeof expression.command !== "string")
-      throw new Error(`command is required`);
-    if (
-      expression.params !== undefined &&
-      typeof expression.params !== "object"
-    )
+  execute: async (expression) => {
+    const command = await resolveGlueson(expression.command);
+    if (typeof command !== "string")
+      throw new Error(`command must be a string`);
+    const params = await resolveGlueson(expression.params);
+    if (params !== undefined && typeof params !== "object")
       throw new Error("params must be an object");
-    if (expression.log !== undefined && typeof expression.log !== "boolean") {
+    const stdin = await resolveGlueson(expression.stdin);
+    const log = await resolveGlueson(expression.log);
+    if (log !== undefined && typeof log !== "boolean") {
       throw new Error(`log must be a boolean`);
     }
 
     return {
       _glueson: "execute",
-      command: expression.command,
-      params: expression.params ?? {},
-      stdin: expression.stdin ?? "",
-      log: expression.log ?? false,
+      command,
+      params: params ?? {},
+      stdin: stdin ?? "",
+      log: log ?? false,
     };
   },
-  get: (expression) => {
-    if (typeof expression.path !== "string")
-      throw new Error("path is required");
-    if (typeof expression.input !== "object")
-      throw new Error("input must be an object");
+  get: async (expression) => {
+    const path = await resolveGlueson(expression.path);
+    if (typeof path !== "string") throw new Error("path is required");
     return {
       _glueson: "get",
       input: expression.input,
-      path: expression.path,
+      path,
     };
   },
-  parse: (expression) => {
-    if (
-      expression.format !== undefined &&
-      !["test", "json", "glueson"].includes(expression.format)
-    ) {
-      throw new Error(`parse format must be one of "text", "json", "glueson"`);
-    }
-    if (typeof expression.input !== "string") {
+  parse: async (expression) => {
+    const input = await resolveGlueson(expression.input);
+    if (typeof input !== "string") {
       throw new Error("parse input must be a string");
     }
     return {
       _glueson: "parse",
-      format: expression.format ?? "json",
-      input: expression.input,
+      input,
     };
   },
-  serialize: (expression) => {
-    if (expression.input === undefined) {
+  serialize: async (expression) => {
+    const input = await resolveGlueson(expression.input);
+    if (input === undefined) {
       throw new Error("serialize input must be defined");
     }
     return {
       _glueson: "serialize",
-      input: expression.input,
+      input,
     };
   },
 };
@@ -138,49 +135,83 @@ const isExpression = (glueson: Glueson): glueson is { _glueson: Operation } => {
   return "_glueson" in glueson;
 };
 
-const parseExpression = (expression: {
+const parseExpression = async (expression: {
   _glueson: Operation;
-}): GluesonExpression => {
-  return parsers[expression._glueson](expression);
+}): Promise<GluesonExpression> => {
+  return await parsers[expression._glueson](expression);
 };
-
-const cache = new Map<string, Promise<ResolvedGlueson>>();
 
 export const resolveGlueson = async (
   glueson: Glueson
 ): Promise<ResolvedGlueson> => {
-  if (isBaseType(glueson)) {
-    return glueson;
-  } else if (Array.isArray(glueson)) {
+  const resolved = await resolveValue(glueson);
+  if (isBaseType(resolved) || resolved === null || resolved === undefined) {
+    return resolved;
+  } else if (Array.isArray(resolved)) {
     return await Promise.all(
-      glueson.map(async (item) => await resolveGlueson(item))
+      resolved.map(async (item) => await resolveGlueson(item))
     );
   } else {
-    const value = Object.fromEntries(
+    return Object.fromEntries(
       await Promise.all(
-        Object.entries(glueson).map(async ([key, value]) => {
+        Object.entries(resolved).map(async ([key, value]) => {
           return [key, await resolveGlueson(value)];
         })
       )
     );
-    if (isExpression(value)) {
-      const expression = parseExpression(value);
-      const hash = hashExpression(expression);
-      const cachedValue = cache.get(hash);
-      if (cachedValue) {
-        return await cachedValue;
-      }
-      const result = executeGluesonExpression(expression);
-      cache.set(hash, result);
-      return await result;
-    } else {
-      return value;
-    }
   }
 };
 
 const hashExpression = (expression: GluesonExpression) => {
-  return createHash("sha256").update(JSON.stringify(expression)).digest("hex");
+  const sortProps = (value: any) => {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      return value;
+    }
+    return Object.fromEntries(
+      Object.entries(value).sort((a, b) => (a[0] as string).localeCompare(b[0]))
+    );
+  };
+
+  const content = JSON.stringify(sortProps(expression), (key, value) =>
+    sortProps(value)
+  );
+
+  return createHash("sha256").update(content).digest("hex");
+};
+
+const cache = new Map<string, Promise<any>>();
+const cached =
+  <T extends GluesonExpression>(fn: (expression: T) => Promise<any>) =>
+  (expression: T) => {
+    const hash = hashExpression(expression);
+    const cachedValue = cache.get(hash);
+    if (cachedValue) {
+      return cachedValue;
+    }
+    const result = fn(expression);
+    cache.set(hash, result);
+    return result;
+  };
+
+export const resolveValue = async (
+  glueson: Glueson
+): Promise<ResolvedGlueson> => {
+  while (isExpression(glueson)) {
+    const expression = await parseExpression(glueson);
+    glueson = await executeGluesonExpression(expression);
+  }
+
+  return glueson;
+};
+
+const getValue = async (glueson: Glueson, path: string | number[] = []) => {
+  let value = await resolveValue(glueson);
+  for (const key of path) {
+    if (typeof value !== "object")
+      throw new Error(`cannot get property ${key} of non-object`);
+    value = await resolveValue((value as Record<string | number, any>)[key]);
+  }
+  return value;
 };
 
 const executeGluesonExpression = (expression: GluesonExpression) => {
@@ -199,56 +230,59 @@ const executeGluesonExpression = (expression: GluesonExpression) => {
 };
 
 const executeEvaluateExpression = async (expression: EvaluateExpression) => {
-  const { code, params = {} } = expression;
-  const result = await runInNewContext("(async ()=>(" + code + "))()", params);
+  const { code, params, lazy } = expression;
+  const result = await runInNewContext("(async ()=>(" + code + "))()", {
+    ...(lazy
+      ? params
+      : ((await resolveGlueson(params)) as Record<string, any>)),
+    get: getValue,
+  });
   return result;
 };
 
 const executeParseExpression = async (expression: ParseExpression) => {
-  const result = JSON.parse(expression.input);
-  if (expression.format === "glueson") {
-    return await resolveGlueson(result);
-  }
-  return result;
+  return JSON.parse(expression.input);
 };
 
 const executeSerializeExpression = async (expression: SerializeExpression) => {
   return JSON.stringify(expression.input);
 };
 
-const executeExcecuteExpression = async (expression: ExecuteExpression) => {
-  const { command, params, stdin } = expression;
+const executeExcecuteExpression = cached(
+  async (expression: ExecuteExpression) => {
+    const { command, params, stdin } = expression;
 
-  const result = await runCommand(command, params, stdin, expression.log);
+    const result = await runCommand(command, params, stdin, expression.log);
 
-  if (typeof result === "string") {
-    console.error(result);
-    process.exit(1);
-  }
-  if (result.exitCode !== 0) {
-    console.error(
-      `command "${command}" failed with exit code ${result.exitCode}\n`
-    );
+    if (typeof result === "string") {
+      console.error(result);
+      process.exit(1);
+    }
+    if (result.exitCode !== 0) {
+      console.error(
+        `command "${command}" failed with exit code ${result.exitCode}\n`
+      );
 
-    if (Object.keys(params).length > 0) {
-      console.error("params: ", JSON.stringify(params, null, 2), "\n");
+      if (Object.keys(params).length > 0) {
+        console.error("params: ", JSON.stringify(params, null, 2), "\n");
+      }
+      if (stdin) {
+        console.error(`stdin:\n${stdin}\n`);
+      }
+      if (result.stdout.length > 0) {
+        console.error(`stdout:\n${result.stdout}\n`);
+      }
+      if (result.stderr.length > 0) {
+        console.error(`stderr:\n${result.stderr}\n`);
+      }
+      process.exit(1);
     }
-    if (stdin) {
-      console.error(`stdin:\n${stdin}\n`);
+    if (expression.log) {
+      return result.exitCode;
     }
-    if (result.stdout.length > 0) {
-      console.error(`stdout:\n${result.stdout}\n`);
-    }
-    if (result.stderr.length > 0) {
-      console.error(`stderr:\n${result.stderr}\n`);
-    }
-    process.exit(1);
+    return result.stdout;
   }
-  if (expression.log) {
-    return result.exitCode;
-  }
-  return result.stdout;
-};
+);
 
 const toJsonIfNotString = (value: any) => {
   return typeof value === "string" ? value : JSON.stringify(value);
