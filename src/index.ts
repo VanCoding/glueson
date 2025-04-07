@@ -162,7 +162,7 @@ const isBaseType = (glueson: Glueson): glueson is GluesonBase => {
 };
 
 const isExpression = (glueson: Glueson): glueson is { _glueson: Operation } => {
-  if (typeof glueson !== "object") return false;
+  if (typeof glueson !== "object" || glueson === null) return false;
   return "_glueson" in glueson;
 };
 
